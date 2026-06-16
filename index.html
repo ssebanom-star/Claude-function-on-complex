@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>복소평면 n차 방정식 해 시각화</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1d27;
+    --panel2: #232733;
+    --accent: #4fd1c5;
+    --accent2: #f56565;
+    --text: #e8eaf0;
+    --muted: #9aa0b0;
+    --border: #2c3140;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    overflow-x: hidden;
+  }
+  header {
+    padding: 14px 16px 10px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 1.05rem; font-weight: 700; }
+  header p { margin: 4px 0 0; font-size: 0.74rem; color: var(--muted); line-height: 1.4; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 12px; }
+  .controls {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  label.lbl { font-size: 0.78rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type="text"] {
+    flex: 1; min-width: 0;
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; font-size: 1rem; font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #06231f; border: none;
+    border-radius: 10px; padding: 12px 16px; font-size: 0.95rem; font-weight: 700;
+    cursor: pointer; touch-action: manipulation;
+  }
+  button:active { filter: brightness(0.9); }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .presets button {
+    background: var(--panel2); color: var(--accent);
+    border: 1px solid var(--border); font-weight: 600;
+    font-size: 0.78rem; padding: 7px 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .opts { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; align-items: center; }
+  .opt { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--muted); }
+  .opt input[type="range"] { width: 110px; accent-color: var(--accent); }
+  .opt input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+  #plot { width: 100%; height: 62vh; min-height: 360px; border-radius: 14px; overflow: hidden; }
+  .roots {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 12px 14px; margin-top: 12px;
+  }
+  .roots h2 { margin: 0 0 8px; font-size: 0.9rem; }
+  .roots .eq { font-family: ui-monospace, monospace; color: var(--accent); font-size: 0.82rem; word-break: break-all; margin-bottom: 8px; }
+  .root-item {
+    display: inline-block; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; margin: 3px; font-family: ui-monospace, monospace; font-size: 0.82rem;
+  }
+  .root-item b { color: var(--accent2); }
+  .hint { font-size: 0.72rem; color: var(--muted); margin-top: 10px; line-height: 1.5; text-align: center; }
+  .err { color: var(--accent2); font-size: 0.82rem; margin-top: 6px; }
+  @media (max-width: 480px) {
+    .opts { gap: 10px; }
+    #plot { height: 56vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>복소평면 n차 방정식 해 시각화</h1>
+  <p>x축·y축 = 복소수 x의 실수부·허수부 &nbsp;|&nbsp; 높이 = |f(x)|<br>
+     곡면이 바닥에 닿는 골짜기(빨간 점)가 방정식의 해입니다</p>
+</header>
+
+<div class="wrap">
+  <div class="controls">
+    <label class="lbl">계수 입력 (최고차항 → 상수항, 공백으로 구분 / 복소수는 1+2i 형식)</label>
+    <div class="row">
+      <input id="coeffs" type="text" value="1 0 0 -1" inputmode="text"
+             autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go">그리기</button>
+    </div>
+    <div class="presets">
+      <button data-c="1 0 1">x²+1</button>
+      <button data-c="1 0 0 -1">x³−1</button>
+      <button data-c="1 -6 11 -6">x³−6x²+11x−6</button>
+      <button data-c="1 0 0 0 -1">x⁴−1</button>
+      <button data-c="1 0 0 0 0 -1">x⁵−1</button>
+      <button data-c="1 0 -2 2">x³−2x+2</button>
+    </div>
+    <div class="opts">
+      <div class="opt">
+        해상도 <input id="res" type="range" min="30" max="120" step="10" value="70" />
+        <span id="resVal">70</span>
+      </div>
+      <div class="opt">
+        <input id="log" type="checkbox" /> <label for="log">로그 높이 (골짜기 강조)</label>
+      </div>
+    </div>
+    <div id="err" class="err"></div>
+  </div>
+
+  <div id="plot"></div>
+
+  <div class="roots">
+    <h2>방정식의 해</h2>
+    <div id="eq" class="eq"></div>
+    <div id="rootList"></div>
+  </div>
+
+  <p class="hint">📱 모바일: 한 손가락 드래그 = 회전 · 두 손가락 = 확대/축소·이동 &nbsp;|&nbsp; 💻 PC: 드래그 회전 · 휠 확대</p>
+</div>
+
+<script>
+// ---------- 복소수 연산 ----------
+const cadd = (a, b) => ({ re: a.re + b.re, im: a.im + b.im });
+const csub = (a, b) => ({ re: a.re - b.re, im: a.im - b.im });
+const cmul = (a, b) => ({ re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re });
+const cabs = (a) => Math.hypot(a.re, a.im);
+function cdiv(a, b) {
+  const d = b.re * b.re + b.im * b.im;
+  return { re: (a.re * b.re + a.im * b.im) / d, im: (a.im * b.re - a.re * b.im) / d };
+}
+
+// ---------- 입력 파싱 ----------
+function parseComplex(s) {
+  s = s.trim().replace(/j/gi, 'i').replace(/\s+/g, '');
+  if (!s) return null;
+  let re = 0, im = 0;
+  const m = s.match(/([+-]?(?:\d+\.?\d*|\.\d+)?)i/);
+  if (m) {
+    let c = m[1];
+    if (c === '' || c === '+') im = 1;
+    else if (c === '-') im = -1;
+    else im = parseFloat(c);
+    s = s.replace(m[0], '');
+  }
+  if (s) { const v = parseFloat(s); if (!isNaN(v)) re = v; }
+  if (!m && isNaN(parseFloat(s))) return null;
+  return { re, im };
+}
+
+function parseCoeffs(str) {
+  const toks = str.trim().split(/[\s,]+/).filter(Boolean);
+  const out = [];
+  for (const t of toks) {
+    const c = parseComplex(t);
+    if (c === null) throw new Error(`계수를 해석할 수 없습니다: "${t}"`);
+    out.push(c);
+  }
+  // 선두의 0 계수 제거(차수 정정)
+  while (out.length > 1 && out[0].re === 0 && out[0].im === 0) out.shift();
+  if (out.length < 2) throw new Error('1차 이상(계수 2개 이상)을 입력하세요.');
+  return out;
+}
+
+// ---------- 다항식 평가 (Horner) ----------
+function evalPoly(coeffs, x) {
+  let r = { re: 0, im: 0 };
+  for (const c of coeffs) r = cadd(cmul(r, x), c);
+  return r;
+}
+
+// ---------- 근 찾기 (Durand–Kerner) ----------
+function findRoots(coeffs) {
+  const n = coeffs.length - 1;
+  // monic 정규화
+  const lead = coeffs[0];
+  const a = coeffs.map((c) => cdiv(c, lead));
+  // 초기값: (0.4+0.9i)^k
+  let roots = [];
+  let p = { re: 1, im: 0 };
+  const seed = { re: 0.4, im: 0.9 };
+  for (let k = 0; k < n; k++) { roots.push(p); p = cmul(p, seed); }
+  for (let iter = 0; iter < 600; iter++) {
+    let maxDelta = 0;
+    const next = [];
+    for (let i = 0; i < n; i++) {
+      const zi = roots[i];
+      let denom = { re: 1, im: 0 };
+      for (let j = 0; j < n; j++) {
+        if (j === i) continue;
+        denom = cmul(denom, csub(zi, roots[j]));
+      }
+      const fz = evalPoly(a, zi);
+      const delta = cdiv(fz, denom);
+      next.push(csub(zi, delta));
+      maxDelta = Math.max(maxDelta, cabs(delta));
+    }
+    roots = next;
+    if (maxDelta < 1e-12) break;
+  }
+  // 미세 오차 정리
+  return roots.map((r) => ({
+    re: Math.abs(r.re) < 1e-9 ? 0 : r.re,
+    im: Math.abs(r.im) < 1e-9 ? 0 : r.im,
+  }));
+}
+
+// ---------- 다항식 문자열 ----------
+function polyStr(coeffs) {
+  const n = coeffs.length - 1;
+  const parts = [];
+  coeffs.forEach((c, i) => {
+    const p = n - i;
+    if (c.re === 0 && c.im === 0) return;
+    let cs = (c.im === 0)
+      ? `${(+c.re.toFixed(4))}`
+      : `(${(+c.re.toFixed(4))}${c.im >= 0 ? '+' : ''}${(+c.im.toFixed(4))}i)`;
+    if (p === 0) parts.push(cs);
+    else if (p === 1) parts.push(`${cs}·x`);
+    else parts.push(`${cs}·x^${p}`);
+  });
+  return 'f(x) = ' + (parts.join(' + ').replace(/\+ -/g, '− ') || '0');
+}
+
+// ---------- 메인 그리기 ----------
+function draw() {
+  const errEl = document.getElementById('err');
+  errEl.textContent = '';
+  let coeffs;
+  try {
+    coeffs = parseCoeffs(document.getElementById('coeffs').value);
+  } catch (e) {
+    errEl.textContent = '⚠ ' + e.message;
+    return;
+  }
+
+  const roots = findRoots(coeffs);
+  const useLog = document.getElementById('log').checked;
+  const N = parseInt(document.getElementById('res').value, 10);
+
+  // 보기 범위 자동 결정
+  let maxR = 0;
+  roots.forEach((r) => { maxR = Math.max(maxR, cabs(r)); });
+  const span = maxR > 0 ? maxR * 1.6 + 0.8 : 3;
+
+  // 격자 생성
+  const xs = [], ys = [];
+  for (let i = 0; i < N; i++) {
+    const t = -span + (2 * span * i) / (N - 1);
+    xs.push(t); ys.push(t);
+  }
+  const z = [];
+  let zmax = 0;
+  for (let iy = 0; iy < N; iy++) {
+    const row = [];
+    for (let ix = 0; ix < N; ix++) {
+      let v = cabs(evalPoly(coeffs, { re: xs[ix], im: ys[iy] }));
+      if (useLog) v = Math.log1p(v);
+      row.push(v);
+      if (v > zmax) zmax = v;
+    }
+    z.push(row);
+  }
+
+  const surface = {
+    type: 'surface', x: xs, y: ys, z: z,
+    colorscale: 'Viridis', showscale: false, opacity: 0.95,
+    contours: { z: { show: true, usecolormap: true, project: { z: false } } },
+    hovertemplate: 'Re=%{x:.3f}<br>Im=%{y:.3f}<br>|f|=%{z:.3f}<extra></extra>',
+  };
+
+  // 근 표시 (바닥 점 + 수직 막대)
+  const rx = roots.map((r) => r.re);
+  const ry = roots.map((r) => r.im);
+  const rz = roots.map(() => 0);
+  const rootPts = {
+    type: 'scatter3d', mode: 'markers', x: rx, y: ry, z: rz,
+    marker: { size: 6, color: '#f56565', symbol: 'circle', line: { color: '#fff', width: 1 } },
+    name: '해(근)',
+    hovertemplate: '해: %{x:.4f} + %{y:.4f}i<extra></extra>',
+  };
+  const stemX = [], stemY = [], stemZ = [];
+  roots.forEach((r) => {
+    stemX.push(r.re, r.re, null);
+    stemY.push(r.im, r.im, null);
+    stemZ.push(0, zmax, null);
+  });
+  const stems = {
+    type: 'scatter3d', mode: 'lines', x: stemX, y: stemY, z: stemZ,
+    line: { color: 'rgba(245,101,101,0.6)', width: 3, dash: 'dash' },
+    hoverinfo: 'skip', showlegend: false,
+  };
+
+  const layout = {
+    paper_bgcolor: '#0f1117', plot_bgcolor: '#0f1117',
+    font: { color: '#e8eaf0', size: 11 },
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    showlegend: false,
+    scene: {
+      xaxis: { title: 'Re(x)', gridcolor: '#2c3140', zerolinecolor: '#4fd1c5', backgroundcolor: '#0f1117', showbackground: true },
+      yaxis: { title: 'Im(x)', gridcolor: '#2c3140', zerolinecolor: '#4fd1c5', backgroundcolor: '#0f1117', showbackground: true },
+      zaxis: { title: useLog ? 'log(1+|f|)' : '|f(x)|', gridcolor: '#2c3140', backgroundcolor: '#0f1117', showbackground: true },
+      camera: { eye: { x: 1.5, y: 1.5, z: 1.1 } },
+      aspectmode: 'cube',
+    },
+  };
+
+  const config = {
+    responsive: true,
+    displayModeBar: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ['toImage'],
+    scrollZoom: true,
+  };
+
+  Plotly.react('plot', [surface, stems, rootPts], layout, config);
+
+  // 해 목록
+  document.getElementById('eq').textContent = polyStr(coeffs);
+  const sorted = roots.slice().sort((a, b) => a.re - b.re || a.im - b.im);
+  document.getElementById('rootList').innerHTML = sorted.map((r, i) => {
+    let s;
+    if (Math.abs(r.im) < 1e-9) s = `${(+r.re.toFixed(5))}`;
+    else s = `${(+r.re.toFixed(5))} ${r.im >= 0 ? '+' : '−'} ${(+Math.abs(r.im).toFixed(5))}i`;
+    return `<span class="root-item">x<sub>${i + 1}</sub> = <b>${s}</b></span>`;
+  }).join('');
+}
+
+// ---------- 이벤트 ----------
+document.getElementById('go').addEventListener('click', draw);
+document.getElementById('coeffs').addEventListener('keydown', (e) => { if (e.key === 'Enter') draw(); });
+document.getElementById('res').addEventListener('input', (e) => {
+  document.getElementById('resVal').textContent = e.target.value;
+});
+document.getElementById('res').addEventListener('change', draw);
+document.getElementById('log').addEventListener('change', draw);
+document.querySelectorAll('.presets button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.getElementById('coeffs').value = b.dataset.c;
+    draw();
+  });
+});
+
+// 첫 렌더
+draw();
+window.addEventListener('resize', () => Plotly.Plots.resize('plot'));
+</script>
+</body>
+</html>
