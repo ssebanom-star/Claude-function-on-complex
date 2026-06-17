@@ -61,6 +61,36 @@
     font-size: 0.78rem; padding: 7px 10px;
     font-family: ui-monospace, Menlo, Consolas, monospace;
   }
+  .degree-select { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .degree-select button {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); font-weight: 700;
+    font-size: 0.85rem; padding: 9px 6px; min-width: 52px;
+  }
+  .degree-select button.active {
+    background: var(--accent); color: #06231f; border-color: var(--accent);
+  }
+  .coeff-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .coeff-item {
+    display: flex; flex-direction: column; align-items: center;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 6px 6px 8px;
+  }
+  .coeff-item .term { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; font-family: ui-monospace, monospace; }
+  .coeff-stepper { display: flex; align-items: center; gap: 4px; }
+  .coeff-stepper button {
+    width: 30px; height: 30px; padding: 0; border-radius: 8px;
+    font-size: 1.05rem; line-height: 1; background: var(--bg); color: var(--accent);
+    border: 1px solid var(--border);
+  }
+  .coeff-item input[type="number"] {
+    width: 56px; text-align: center;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 2px; font-size: 0.95rem;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .coeff-item input[type="number"]:focus { outline: none; border-color: var(--accent); }
   .opts { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; align-items: center; }
   .opt { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--muted); }
   .opt input[type="range"] { width: 110px; accent-color: var(--accent); }
@@ -95,7 +125,13 @@
 
 <div class="wrap">
   <div class="controls">
-    <label class="lbl">계수 입력 (최고차항 → 상수항, 공백으로 구분 / 복소수는 1+2i 형식)</label>
+    <label class="lbl">차수 선택 (n차 방정식)</label>
+    <div id="degreeSelect" class="degree-select"></div>
+
+    <label class="lbl" style="margin-top:10px;">계수 조절 (각 항의 계수를 +/− 또는 직접 입력)</label>
+    <div id="coeffGrid" class="coeff-grid"></div>
+
+    <label class="lbl" style="margin-top:10px;">또는 직접 입력 (최고차항 → 상수항, 공백 구분 / 복소수는 1+2i 형식)</label>
     <div class="row">
       <input id="coeffs" type="text" value="1 0 0 -1" inputmode="text"
              autocomplete="off" autocapitalize="off" spellcheck="false" />
@@ -235,6 +271,85 @@ function polyStr(coeffs) {
   return 'f(x) = ' + (parts.join(' + ').replace(/\+ -/g, '− ') || '0');
 }
 
+// ---------- 차수 선택 / 계수 그리드 ----------
+const DEGREES = [2, 3, 4, 5, 6];
+let currentDegree = 3;
+
+function termLabel(power) {
+  if (power === 0) return '상수';
+  if (power === 1) return 'x';
+  return `x^${power}`;
+}
+
+function defaultCoeffsForDegree(n) {
+  // x^n - 1 형태: 근이 단위원 위에 고르게 분포해 시각화하기 좋다
+  const arr = new Array(n + 1).fill(0);
+  arr[0] = 1;
+  arr[n] = -1;
+  return arr;
+}
+
+function renderDegreeButtons() {
+  const box = document.getElementById('degreeSelect');
+  box.innerHTML = DEGREES.map(
+    (d) => `<button data-d="${d}" class="${d === currentDegree ? 'active' : ''}">${d}차</button>`
+  ).join('');
+  box.querySelectorAll('button').forEach((b) => {
+    b.addEventListener('click', () => {
+      currentDegree = parseInt(b.dataset.d, 10);
+      renderDegreeButtons();
+      renderCoeffGrid(defaultCoeffsForDegree(currentDegree));
+      syncTextFromGrid();
+    });
+  });
+}
+
+function renderCoeffGrid(realCoeffs) {
+  const grid = document.getElementById('coeffGrid');
+  const n = realCoeffs.length - 1;
+  grid.innerHTML = realCoeffs.map((v, i) => {
+    const power = n - i;
+    return `
+      <div class="coeff-item" data-i="${i}">
+        <div class="term">${termLabel(power)}</div>
+        <div class="coeff-stepper">
+          <button type="button" class="dec">−</button>
+          <input type="number" step="1" value="${v}" />
+          <button type="button" class="inc">+</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.coeff-item').forEach((item) => {
+    const input = item.querySelector('input');
+    const dec = item.querySelector('.dec');
+    const inc = item.querySelector('.inc');
+    const step = () => syncTextFromGrid();
+    dec.addEventListener('click', () => { input.value = (parseFloat(input.value) || 0) - 1; step(); });
+    inc.addEventListener('click', () => { input.value = (parseFloat(input.value) || 0) + 1; step(); });
+    input.addEventListener('change', step);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') step(); });
+  });
+}
+
+function syncTextFromGrid() {
+  const grid = document.getElementById('coeffGrid');
+  const values = [...grid.querySelectorAll('.coeff-item input')].map((inp) => {
+    const v = parseFloat(inp.value);
+    return isNaN(v) ? 0 : v;
+  });
+  document.getElementById('coeffs').value = values.join(' ');
+  draw();
+}
+
+// 직접 입력으로 그려진 계수를 차수 버튼/그리드에 반영 (실수부 기준)
+function updateUIFromCoeffs(coeffs) {
+  const n = coeffs.length - 1;
+  currentDegree = DEGREES.includes(n) ? n : currentDegree;
+  renderDegreeButtons();
+  renderCoeffGrid(coeffs.map((c) => +c.re.toFixed(4)));
+}
+
 // ---------- 메인 그리기 ----------
 function draw() {
   const errEl = document.getElementById('err');
@@ -246,6 +361,7 @@ function draw() {
     errEl.textContent = '⚠ ' + e.message;
     return;
   }
+  updateUIFromCoeffs(coeffs);
 
   const roots = findRoots(coeffs);
   const useLog = document.getElementById('log').checked;
