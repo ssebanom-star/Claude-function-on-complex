@@ -95,6 +95,21 @@
   .opt { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--muted); }
   .opt input[type="range"] { width: 110px; accent-color: var(--accent); }
   .opt input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+  .opt select {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font-size: 0.8rem;
+  }
+  .mode {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; font-size: 0.8rem; font-weight: 700;
+  }
+  .mode.active { background: var(--accent); color: #06231f; border-color: var(--accent); }
+  .fourd {
+    margin-top: 10px; padding: 10px; border: 1px dashed var(--border);
+    border-radius: 10px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+  }
+  .fourd .opt span.val { color: var(--accent); min-width: 30px; display: inline-block; }
   #plot { width: 100%; height: 62vh; min-height: 360px; border-radius: 14px; overflow: hidden; }
   .roots {
     background: var(--panel); border: 1px solid var(--border);
@@ -119,8 +134,8 @@
 <body>
 <header>
   <h1>복소평면 n차 방정식 해 시각화</h1>
-  <p>x축·y축 = 복소수 x의 실수부·허수부 &nbsp;|&nbsp; 높이 = |f(x)|<br>
-     곡면이 바닥에 닿는 골짜기(빨간 점)가 방정식의 해입니다</p>
+  <p>3D: x축·y축 = x의 실수부·허수부, 높이 = |f(x)| &nbsp;|&nbsp; 4D: (Re x, Im x, Re f, Im f) ∈ ℝ⁴ 를 회전·원근투영<br>
+     빨간 점이 방정식의 해입니다</p>
 </header>
 
 <div class="wrap">
@@ -146,12 +161,29 @@
       <button data-c="1 0 -2 2">x³−2x+2</button>
     </div>
     <div class="opts">
+      <div class="opt">표시 방식:
+        <button id="mode3d" class="mode active" type="button">3D (높이=|f|)</button>
+        <button id="mode4d" class="mode" type="button">4D 투영 (ℝ⁴→ℝ³)</button>
+      </div>
       <div class="opt">
         해상도 <input id="res" type="range" min="30" max="120" step="10" value="70" />
         <span id="resVal">70</span>
       </div>
-      <div class="opt">
+      <div class="opt" id="logOpt">
         <input id="log" type="checkbox" /> <label for="log">로그 높이 (골짜기 강조)</label>
+      </div>
+    </div>
+
+    <div id="fourd" class="fourd" style="display:none;">
+      <div class="opt">XW 회전 <input id="rxw" type="range" min="-180" max="180" value="40" /><span class="val" id="rxwVal">40°</span></div>
+      <div class="opt">YW 회전 <input id="ryw" type="range" min="-180" max="180" value="0" /><span class="val" id="rywVal">0°</span></div>
+      <div class="opt">ZW 회전 <input id="rzw" type="range" min="-180" max="180" value="25" /><span class="val" id="rzwVal">25°</span></div>
+      <div class="opt">원근 <input id="dist" type="range" min="2" max="8" step="0.5" value="4" /><span class="val" id="distVal">4</span></div>
+      <div class="opt">색상:
+        <select id="colorby">
+          <option value="phase">위상 arg(f)</option>
+          <option value="mag">크기 |f|</option>
+        </select>
       </div>
     </div>
     <div id="err" class="err"></div>
@@ -165,7 +197,8 @@
     <div id="rootList"></div>
   </div>
 
-  <p class="hint">📱 모바일: 한 손가락 드래그 = 회전 · 두 손가락 = 확대/축소·이동 &nbsp;|&nbsp; 💻 PC: 드래그 회전 · 휠 확대</p>
+  <p class="hint">📱 모바일: 한 손가락 드래그 = 회전 · 두 손가락 = 확대/축소·이동 &nbsp;|&nbsp; 💻 PC: 드래그 회전 · 휠 확대<br>
+     4D 모드: XW/YW/ZW 슬라이더로 4번째 축을 3차원 공간 안으로 회전시켜 보세요 (테서랙트와 같은 원근투영)</p>
 </div>
 
 <script>
@@ -350,6 +383,53 @@ function updateUIFromCoeffs(coeffs) {
   renderCoeffGrid(coeffs.map((c) => +c.re.toFixed(4)));
 }
 
+// ===========================================================================
+//  4차원 표현
+//  복소함수 f의 그래프는 (Re x, Im x, Re f, Im f) 로 이루어진 ℝ⁴ 안의 2차원
+//  곡면이다. 이를 4D 회전 후 원근투영(테서랙트를 그릴 때와 같은 표준 방법)으로
+//  3차원에 투영한다.  f(x)=0 인 해는 4D 점 (a, b, 0, 0) 으로 나타난다.
+// ===========================================================================
+let viewMode = '3d';
+
+// 위상(편각)용 순환 색상표: arg(f) 가 -π..π 한 바퀴 돌면 색도 한 바퀴 돈다
+const PHASE_COLORSCALE = (() => {
+  const stops = [];
+  const n = 12;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const hue = t * 360;
+    // HSL → RGB (S=70%, L=55%)
+    const h = hue / 60, c = 0.7 * (1 - Math.abs(2 * 0.55 - 1)) , x = c * (1 - Math.abs((h % 2) - 1));
+    let r = 0, g = 0, b = 0;
+    if (h < 1) [r, g, b] = [c, x, 0];
+    else if (h < 2) [r, g, b] = [x, c, 0];
+    else if (h < 3) [r, g, b] = [0, c, x];
+    else if (h < 4) [r, g, b] = [0, x, c];
+    else if (h < 5) [r, g, b] = [x, 0, c];
+    else [r, g, b] = [c, 0, x];
+    const m = 0.55 - c / 2;
+    const R = Math.round((r + m) * 255), G = Math.round((g + m) * 255), B = Math.round((b + m) * 255);
+    stops.push([t, `rgb(${R},${G},${B})`]);
+  }
+  return stops;
+})();
+
+// 4D 벡터를 평면 (i,j) 에서 각도 t(라디안) 만큼 회전
+function rot4(v, i, j, t) {
+  const c = Math.cos(t), s = Math.sin(t);
+  const vi = v[i], vj = v[j];
+  const r = v.slice();
+  r[i] = c * vi - s * vj;
+  r[j] = s * vi + c * vj;
+  return r;
+}
+
+// 4D → 3D 원근투영 (네 번째 축 w 방향에서 거리 dist 인 시점으로 바라봄)
+function project4to3(v, dist) {
+  const k = dist / (dist - v[3]);
+  return [v[0] * k, v[1] * k, v[2] * k];
+}
+
 // ---------- 메인 그리기 ----------
 function draw() {
   const errEl = document.getElementById('err');
@@ -364,7 +444,6 @@ function draw() {
   updateUIFromCoeffs(coeffs);
 
   const roots = findRoots(coeffs);
-  const useLog = document.getElementById('log').checked;
   const N = parseInt(document.getElementById('res').value, 10);
 
   // 보기 범위 자동 결정
@@ -372,79 +451,28 @@ function draw() {
   roots.forEach((r) => { maxR = Math.max(maxR, cabs(r)); });
   const span = maxR > 0 ? maxR * 1.6 + 0.8 : 3;
 
-  // 격자 생성
-  const xs = [], ys = [];
-  for (let i = 0; i < N; i++) {
-    const t = -span + (2 * span * i) / (N - 1);
-    xs.push(t); ys.push(t);
-  }
-  const z = [];
-  let zmax = 0;
-  for (let iy = 0; iy < N; iy++) {
-    const row = [];
-    for (let ix = 0; ix < N; ix++) {
-      let v = cabs(evalPoly(coeffs, { re: xs[ix], im: ys[iy] }));
-      if (useLog) v = Math.log1p(v);
-      row.push(v);
-      if (v > zmax) zmax = v;
-    }
-    z.push(row);
-  }
+  // 격자 좌표
+  const xs = [];
+  for (let i = 0; i < N; i++) xs.push(-span + (2 * span * i) / (N - 1));
 
-  const surface = {
-    type: 'surface', x: xs, y: ys, z: z,
-    colorscale: 'Viridis', showscale: false, opacity: 0.95,
-    contours: { z: { show: true, usecolormap: true, project: { z: false } } },
-    hovertemplate: 'Re=%{x:.3f}<br>Im=%{y:.3f}<br>|f|=%{z:.3f}<extra></extra>',
+  const config = {
+    responsive: true, displayModeBar: true, displaylogo: false,
+    modeBarButtonsToRemove: ['toImage'], scrollZoom: true,
   };
-
-  // 근 표시 (바닥 점 + 수직 막대)
-  const rx = roots.map((r) => r.re);
-  const ry = roots.map((r) => r.im);
-  const rz = roots.map(() => 0);
-  const rootPts = {
-    type: 'scatter3d', mode: 'markers', x: rx, y: ry, z: rz,
-    marker: { size: 6, color: '#f56565', symbol: 'circle', line: { color: '#fff', width: 1 } },
-    name: '해(근)',
-    hovertemplate: '해: %{x:.4f} + %{y:.4f}i<extra></extra>',
-  };
-  const stemX = [], stemY = [], stemZ = [];
-  roots.forEach((r) => {
-    stemX.push(r.re, r.re, null);
-    stemY.push(r.im, r.im, null);
-    stemZ.push(0, zmax, null);
-  });
-  const stems = {
-    type: 'scatter3d', mode: 'lines', x: stemX, y: stemY, z: stemZ,
-    line: { color: 'rgba(245,101,101,0.6)', width: 3, dash: 'dash' },
-    hoverinfo: 'skip', showlegend: false,
-  };
-
-  const layout = {
+  const baseLayout = {
     paper_bgcolor: '#0f1117', plot_bgcolor: '#0f1117',
     font: { color: '#e8eaf0', size: 11 },
     margin: { l: 0, r: 0, t: 0, b: 0 },
     showlegend: false,
-    scene: {
-      xaxis: { title: 'Re(x)', gridcolor: '#2c3140', zerolinecolor: '#4fd1c5', backgroundcolor: '#0f1117', showbackground: true },
-      yaxis: { title: 'Im(x)', gridcolor: '#2c3140', zerolinecolor: '#4fd1c5', backgroundcolor: '#0f1117', showbackground: true },
-      zaxis: { title: useLog ? 'log(1+|f|)' : '|f(x)|', gridcolor: '#2c3140', backgroundcolor: '#0f1117', showbackground: true },
-      camera: { eye: { x: 1.5, y: 1.5, z: 1.1 } },
-      aspectmode: 'cube',
-    },
   };
 
-  const config = {
-    responsive: true,
-    displayModeBar: true,
-    displaylogo: false,
-    modeBarButtonsToRemove: ['toImage'],
-    scrollZoom: true,
-  };
+  if (viewMode === '3d') {
+    draw3D(coeffs, roots, xs, N, span, baseLayout, config);
+  } else {
+    draw4D(coeffs, roots, xs, N, span, baseLayout, config);
+  }
 
-  Plotly.react('plot', [surface, stems, rootPts], layout, config);
-
-  // 해 목록
+  // 해 목록 (공통)
   document.getElementById('eq').textContent = polyStr(coeffs);
   const sorted = roots.slice().sort((a, b) => a.re - b.re || a.im - b.im);
   document.getElementById('rootList').innerHTML = sorted.map((r, i) => {
@@ -453,6 +481,144 @@ function draw() {
     else s = `${(+r.re.toFixed(5))} ${r.im >= 0 ? '+' : '−'} ${(+Math.abs(r.im).toFixed(5))}i`;
     return `<span class="root-item">x<sub>${i + 1}</sub> = <b>${s}</b></span>`;
   }).join('');
+}
+
+// ---------- 3D: 높이 = |f(x)| ----------
+function draw3D(coeffs, roots, xs, N, span, baseLayout, config) {
+  const useLog = document.getElementById('log').checked;
+  const z = [];
+  let zmax = 0;
+  for (let iy = 0; iy < N; iy++) {
+    const row = [];
+    for (let ix = 0; ix < N; ix++) {
+      let v = cabs(evalPoly(coeffs, { re: xs[ix], im: xs[iy] }));
+      if (useLog) v = Math.log1p(v);
+      row.push(v);
+      if (v > zmax) zmax = v;
+    }
+    z.push(row);
+  }
+
+  const surface = {
+    type: 'surface', x: xs, y: xs, z: z,
+    colorscale: 'Viridis', showscale: false, opacity: 0.95,
+    contours: { z: { show: true, usecolormap: true } },
+    hovertemplate: 'Re=%{x:.3f}<br>Im=%{y:.3f}<br>|f|=%{z:.3f}<extra></extra>',
+  };
+  const rootPts = {
+    type: 'scatter3d', mode: 'markers',
+    x: roots.map((r) => r.re), y: roots.map((r) => r.im), z: roots.map(() => 0),
+    marker: { size: 6, color: '#f56565', line: { color: '#fff', width: 1 } },
+    hovertemplate: '해: %{x:.4f} + %{y:.4f}i<extra></extra>',
+  };
+  const stemX = [], stemY = [], stemZ = [];
+  roots.forEach((r) => {
+    stemX.push(r.re, r.re, null); stemY.push(r.im, r.im, null); stemZ.push(0, zmax, null);
+  });
+  const stems = {
+    type: 'scatter3d', mode: 'lines', x: stemX, y: stemY, z: stemZ,
+    line: { color: 'rgba(245,101,101,0.6)', width: 3, dash: 'dash' }, hoverinfo: 'skip',
+  };
+
+  const layout = Object.assign({}, baseLayout, {
+    scene: {
+      xaxis: { title: 'Re(x)', gridcolor: '#2c3140', zerolinecolor: '#4fd1c5', backgroundcolor: '#0f1117', showbackground: true },
+      yaxis: { title: 'Im(x)', gridcolor: '#2c3140', zerolinecolor: '#4fd1c5', backgroundcolor: '#0f1117', showbackground: true },
+      zaxis: { title: useLog ? 'log(1+|f|)' : '|f(x)|', gridcolor: '#2c3140', backgroundcolor: '#0f1117', showbackground: true },
+      camera: { eye: { x: 1.5, y: 1.5, z: 1.1 } },
+      aspectmode: 'cube',
+    },
+  });
+  Plotly.react('plot', [surface, stems, rootPts], layout, config);
+}
+
+// ---------- 4D: (Re x, Im x, Re f, Im f) 를 ℝ⁴에서 회전 후 ℝ³로 투영 ----------
+function draw4D(coeffs, roots, xs, N, span, baseLayout, config) {
+  const aXW = (+document.getElementById('rxw').value) * Math.PI / 180;
+  const aYW = (+document.getElementById('ryw').value) * Math.PI / 180;
+  const aZW = (+document.getElementById('rzw').value) * Math.PI / 180;
+  const dist = +document.getElementById('dist').value;
+  const colorBy = document.getElementById('colorby').value;
+
+  // 1) 각 격자점의 4D 좌표를 만든다.
+  //    출력의 크기는 log(1+|f|) 로 압축(고차에서 발산 방지), 위상은 그대로 유지.
+  //    -> 해(|f|=0)는 정확히 (a,b,0,0) 에 위치.
+  const pts4 = [];   // [a, b, X3, X4]
+  const intensity = []; // 색상값 (위상 또는 크기)
+  let maxNorm = 1e-9;
+  for (let iy = 0; iy < N; iy++) {
+    for (let ix = 0; ix < N; ix++) {
+      const fx = evalPoly(coeffs, { re: xs[ix], im: xs[iy] });
+      const mag = cabs(fx);
+      const arg = Math.atan2(fx.im, fx.re);
+      const rho = Math.log1p(mag);
+      const p = [xs[ix], xs[iy], rho * Math.cos(arg), rho * Math.sin(arg)];
+      pts4.push(p);
+      intensity.push(colorBy === 'phase' ? arg : mag);
+      const nrm = Math.hypot(p[0], p[1], p[2], p[3]);
+      if (nrm > maxNorm) maxNorm = nrm;
+    }
+  }
+
+  // 2) 4D 좌표를 정규화(스케일 통일) → 회전 → 원근투영
+  const scale = 1.4 / maxNorm;
+  const X = [], Y = [], Z = [];
+  for (let k = 0; k < pts4.length; k++) {
+    let v = pts4[k].map((c) => c * scale);
+    v = rot4(v, 0, 3, aXW);
+    v = rot4(v, 1, 3, aYW);
+    v = rot4(v, 2, 3, aZW);
+    const p3 = project4to3(v, dist);
+    X.push(p3[0]); Y.push(p3[1]); Z.push(p3[2]);
+  }
+
+  // 3) 격자를 삼각형으로 분할해 mesh3d 곡면 구성
+  const I = [], J = [], K = [];
+  for (let iy = 0; iy < N - 1; iy++) {
+    for (let ix = 0; ix < N - 1; ix++) {
+      const v00 = iy * N + ix, v01 = iy * N + ix + 1;
+      const v10 = (iy + 1) * N + ix, v11 = (iy + 1) * N + ix + 1;
+      I.push(v00, v00); J.push(v01, v11); K.push(v11, v10);
+    }
+  }
+
+  const phaseColor = colorBy === 'phase';
+  const surface = {
+    type: 'mesh3d', x: X, y: Y, z: Z, i: I, j: J, k: K,
+    intensity: intensity,
+    colorscale: phaseColor ? PHASE_COLORSCALE : 'Viridis',
+    cmin: phaseColor ? -Math.PI : undefined,
+    cmax: phaseColor ? Math.PI : undefined,
+    showscale: true,
+    colorbar: { title: phaseColor ? 'arg(f)' : '|f|', thickness: 12, len: 0.6 },
+    flatshading: false, opacity: 0.92,
+    hoverinfo: 'skip',
+  };
+
+  // 4) 해(근): 4D 점 (a, b, 0, 0) 을 동일하게 변환·투영
+  const rX = [], rY = [], rZ = [];
+  roots.forEach((r) => {
+    let v = [r.re * scale, r.im * scale, 0, 0];
+    v = rot4(v, 0, 3, aXW); v = rot4(v, 1, 3, aYW); v = rot4(v, 2, 3, aZW);
+    const p3 = project4to3(v, dist);
+    rX.push(p3[0]); rY.push(p3[1]); rZ.push(p3[2]);
+  });
+  const rootPts = {
+    type: 'scatter3d', mode: 'markers', x: rX, y: rY, z: rZ,
+    marker: { size: 7, color: '#f56565', line: { color: '#fff', width: 1.5 } },
+    hovertemplate: '해 (root)<extra></extra>',
+  };
+
+  const layout = Object.assign({}, baseLayout, {
+    scene: {
+      xaxis: { showgrid: false, zeroline: false, showticklabels: false, title: '', backgroundcolor: '#0f1117', showbackground: true },
+      yaxis: { showgrid: false, zeroline: false, showticklabels: false, title: '', backgroundcolor: '#0f1117', showbackground: true },
+      zaxis: { showgrid: false, zeroline: false, showticklabels: false, title: '', backgroundcolor: '#0f1117', showbackground: true },
+      camera: { eye: { x: 1.6, y: 1.6, z: 1.2 } },
+      aspectmode: 'data',
+    },
+  });
+  Plotly.react('plot', [surface, rootPts], layout, config);
 }
 
 // ---------- 이벤트 ----------
@@ -469,6 +635,28 @@ document.querySelectorAll('.presets button').forEach((b) => {
     draw();
   });
 });
+
+// 표시 방식 전환 (3D / 4D)
+function setMode(m) {
+  viewMode = m;
+  document.getElementById('mode3d').classList.toggle('active', m === '3d');
+  document.getElementById('mode4d').classList.toggle('active', m === '4d');
+  document.getElementById('fourd').style.display = (m === '4d') ? 'flex' : 'none';
+  document.getElementById('logOpt').style.display = (m === '4d') ? 'none' : 'flex';
+  draw();
+}
+document.getElementById('mode3d').addEventListener('click', () => setMode('3d'));
+document.getElementById('mode4d').addEventListener('click', () => setMode('4d'));
+
+// 4D 회전/원근 슬라이더 (값 표시 + 실시간 갱신)
+[['rxw', 'rxwVal', '°'], ['ryw', 'rywVal', '°'], ['rzw', 'rzwVal', '°'], ['dist', 'distVal', '']].forEach(([id, valId, unit]) => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => {
+    document.getElementById(valId).textContent = el.value + unit;
+    if (viewMode === '4d') draw();
+  });
+});
+document.getElementById('colorby').addEventListener('change', () => { if (viewMode === '4d') draw(); });
 
 // 첫 렌더
 draw();
